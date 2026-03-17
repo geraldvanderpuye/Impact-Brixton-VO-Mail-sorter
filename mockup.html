@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mockup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4f0; color: #1a1a1a; font-size: 14px; }
+
+  /* Header */
+  .header { background: #fff; border-bottom: 1px solid #e5e3dc; padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; }
+  .header-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+  .header-brand img { width: 28px; height: 28px; border-radius: 6px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .email { font-size: 12px; color: #888; }
+  .btn-sm { padding: 5px 12px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 12px; color: #444; }
+
+  /* Main */
+  .main { max-width: 960px; margin: 0 auto; padding: 20px 24px; }
+
+  /* Search + date row */
+  .search-row { display: flex; gap: 10px; margin-bottom: 16px; }
+  .search-box { flex: 1; padding: 9px 14px; border: 1px solid #ddd; border-radius: 8px; background: #fff; font-size: 14px; color: #888; display: flex; align-items: center; gap: 8px; }
+  .date-btn { padding: 9px 14px; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; font-size: 13px; color: #555; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+
+  /* Status tabs */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid #e5e3dc; margin-bottom: 16px; }
+  .tab { padding: 10px 16px; border: none; background: none; cursor: pointer; font-size: 14px; color: #777; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+  .badge { background: #e8e6e0; color: #444; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
+  .badge.red { background: #fee2e2; color: #b91c1c; }
+
+  /* Time filter pills */
+  .pills { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .pill { padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: #fff; font-size: 13px; color: #555; cursor: pointer; }
+  .pill.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+  /* Period group */
+  .period { margin-bottom: 8px; border: 1px solid #e5e3dc; border-radius: 10px; overflow: hidden; background: #fff; }
+  .period-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+  .period-title { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .period-count { font-size: 12px; color: #888; font-weight: 400; }
+  .chevron { color: #aaa; font-size: 11px; transition: transform 0.15s; }
+  .chevron.open { transform: rotate(90deg); }
+
+  /* Sub-period (nested days/months) */
+  .sub-periods { border-top: 1px solid #f0ede6; }
+  .sub-period { border-bottom: 1px solid #f0ede6; }
+  .sub-period:last-child { border-bottom: none; }
+  .sub-header { padding: 10px 16px 10px 32px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; background: #faf9f6; }
+  .sub-title { font-size: 13px; color: #444; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .sub-count { font-size: 11px; color: #aaa; }
+
+  /* Mail items inside sub-period */
+  .mail-items { padding: 8px 16px 8px 32px; display: flex; flex-direction: column; gap: 6px; background: #fff; }
+  .mail-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid #ece9e2; border-radius: 8px; }
+  .mail-item-left { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #e0dbd0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #666; flex-shrink: 0; }
+  .item-name { font-weight: 500; font-size: 13px; }
+  .item-meta { font-size: 11px; color: #999; margin-top: 1px; }
+  .item-right { display: flex; align-items: center; gap: 8px; }
+  .status-pill { padding: 3px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .status-sent { background: #dcfce7; color: #166534; }
+  .status-pending { background: #fef9c3; color: #854d0e; }
+  .status-no-match { background: #fee2e2; color: #991b1b; }
+  .time-label { font-size: 11px; color: #bbb; }
+
+  /* Collapsed state */
+  .collapsed .sub-periods { display: none; }
+  .collapsed .mail-items { display: none; }
+
+  /* Toolbar */
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .toolbar-count { font-size: 12px; color: #aaa; }
+  .poll-btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 12px; color: #555; display: flex; align-items: center; gap: 5px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">
+    <img src="/Users/danielthompson/Coding/IB - V.O./client/public/logo.png" alt="IB"/>
+    IB Virtual Office Mail Sorter
+  </div>
+  <div class="header-right">
+    <span class="email">mail@ibbrixton.com</span>
+    <button class="btn-sm">Sign out</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Search + date picker -->
+  <div class="search-row">
+    <div class="search-box">🔍 &nbsp;Search by customer name or business…</div>
+    <div class="date-btn">📅 Pick a date</div>
+  </div>
+
+  <!-- Status tabs -->
+  <div class="tabs">
+    <button class="tab active">Pending <span class="badge red">5</span></button>
+    <button class="tab">Sent <span class="badge">47</span></button>
+    <button class="tab">Skipped <span class="badge">3</span></button>
+  </div>
+
+  <!-- Time filter pills -->
+  <div class="pills">
+    <div class="pill active">Today</div>
+    <div class="pill">This Week</div>
+    <div class="pill">This Month</div>
+    <div class="pill">This Year</div>
+  </div>
+
+  <div class="toolbar">
+    <span class="toolbar-count">5 items</span>
+    <button class="poll-btn">↻ Check Drive Now</button>
+  </div>
+
+  <!-- TODAY — flat list (no nesting needed) -->
+  <div class="period">
+    <div class="period-header">
+      <div class="period-title">📅 Today — Tuesday 11 March <span class="period-count">5 items</span></div>
+      <span class="chevron open">▶</span>
+    </div>
+    <div class="sub-periods">
+      <div class="mail-items">
+        <div class="mail-item">
+          <div class="mail-item-left">
+            <div class="avatar">JD</div>
+            <div>
+              <div class="item-name">James Donovan</div>
+              <div class="item-meta">scan_2024_03_11_001.pdf · Detected: James Donovan, 14 Coldharbour Lane</div>
+            </div>
+          </div>
+          <div class="item-right">
+            <span class="status-pill status-pending">Pending</span>
+            <span class="time-label">09:14</span>
+          </div>
+        </div>
+        <div class="mail-item">
+          <div class="mail-item-left">
+            <div class="avatar">SL</div>
+            <div>
+              <div class="item-name">Sofia Laurent</div>
+              <div class="item-meta">scan_2024_03_11_002.pdf · Detected: Sofia Laurent Ltd, Brixton</div>
+            </div>
+          </div>
+          <div class="item-right">
+            <span class="status-pill status-pending">Pending</span>
+            <span class="time-label">09:22</span>
+          </div>
+        </div>
+        <div class="mail-item">
+          <div class="mail-item-left">
+            <div class="avatar">?</div>
+            <div>
+              <div class="item-name" style="color:#b91c1c">No match found</div>
+              <div class="item-meta">scan_2024_03_11_003.pdf · Detected: Kwame Asante, SW9 8LQ</div>
+            </div>
+          </div>
+          <div class="item-right">
+            <span class="status-pill status-no-match">No Match</span>
+            <span class="time-label">10:05</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THIS WEEK pill selected — nested by day -->
+  <br/>
+  <div style="font-size:12px;color:#aaa;margin-bottom:8px;font-style:italic;">↓ "This Week" selected — days nested inside</div>
+
+  <div class="period">
+    <div class="period-header">
+      <div class="period-title">📅 This Week <span class="period-count">12 items</span></div>
+      <span class="chevron open">▶</span>
+    </div>
+    <div class="sub-periods">
+      <!-- Monday -->
+      <div class="sub-period">
+        <div class="sub-header">
+          <div class="sub-title">▶ Monday 10 March <span class="sub-count">4 items</span></div>
+        </div>
+        <div class="mail-items">
+          <div class="mail-item">
+            <div class="mail-item-left">
+              <div class="avatar">RB</div>
+              <div><div class="item-name">Rachel Baptiste</div><div class="item-meta">scan_03_10_001.pdf</div></div>
+            </div>
+            <div class="item-right"><span class="status-pill status-sent">Sent</span><span class="time-label">08:52</span></div>
+          </div>
+          <div class="mail-item">
+            <div class="mail-item-left">
+              <div class="avatar">TM</div>
+              <div><div class="item-name">Tech Made Ltd</div><div class="item-meta">scan_03_10_002.pdf</div></div>
+            </div>
+            <div class="item-right"><span class="status-pill status-sent">Sent</span><span class="time-label">09:10</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- Friday collapsed -->
+      <div class="sub-period">
+        <div class="sub-header">
+          <div class="sub-title">▶ Friday 7 March <span class="sub-count">8 items</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <br/>
+  <div style="font-size:12px;color:#aaa;margin-bottom:8px;font-style:italic;">↓ "This Year" selected — months nested inside</div>
+
+  <div class="period">
+    <div class="period-header">
+      <div class="period-title">📅 This Year — 2026 <span class="period-count">134 items</span></div>
+      <span class="chevron open">▶</span>
+    </div>
+    <div class="sub-periods">
+      <div class="sub-period">
+        <div class="sub-header">
+          <div class="sub-title">▶ March 2026 <span class="sub-count">47 items</span></div>
+        </div>
+      </div>
+      <div class="sub-period">
+        <div class="sub-header">
+          <div class="sub-title">▶ February 2026 <span class="sub-count">52 items</span></div>
+        </div>
+      </div>
+      <div class="sub-period">
+        <div class="sub-header">
+          <div class="sub-title">▶ January 2026 <span class="sub-count">35 items</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

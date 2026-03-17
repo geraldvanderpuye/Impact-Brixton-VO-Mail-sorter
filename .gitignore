@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Database (live data stays local)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Cloudflare / Wrangler
+.wrangler/
+
+# Build output
+dist/
+client/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

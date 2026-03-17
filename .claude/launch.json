@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend (Express)",
+      "runtimeExecutable": "/opt/homebrew/opt/node@22/bin/node",
+      "runtimeArgs": ["server/index.js"],
+      "port": 3000
+    },
+    {
+      "name": "Frontend (Vite)",
+      "runtimeExecutable": "/opt/homebrew/opt/node@22/bin/node",
+      "runtimeArgs": ["client/node_modules/.bin/vite", "client", "--port", "5173"],
+      "port": 5173
+    },
+    {
+      "name": "Mockup",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["-m", "http.server", "5174"],
+      "port": 5174
+    },
+    {
+      "name": "IB Website (Astro dev)",
+      "runtimeExecutable": "/opt/homebrew/opt/node@22/bin/node",
+      "runtimeArgs": ["/Users/danielthompson/Coding/IB/impact-brixton-website/node_modules/.bin/astro", "dev", "--root", "/Users/danielthompson/Coding/IB/impact-brixton-website"],
+      "port": 4321
+    }
+  ]
+}

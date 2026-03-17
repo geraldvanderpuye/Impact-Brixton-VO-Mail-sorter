@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(/opt/homebrew/opt/node@22/bin/npm rebuild better-sqlite3)",
+      "Bash(PATH=\"/opt/homebrew/opt/node@22/bin:$PATH\" npm rebuild better-sqlite3)",
+      "Bash(PATH=\"/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\" /opt/homebrew/opt/node@22/bin/npm rebuild better-sqlite3)",
+      "Bash(lsof -i :3000 -i :5173)",
+      "Bash(pkill -f \"node@22.*index.js\")",
+      "Bash(lsof -i :3000)",
+      "Bash(/opt/homebrew/opt/node@22/bin/node -e \":*)",
+      "Bash(/opt/homebrew/opt/node@22/bin/node server/scripts/rematch-now.js)",
+      "Bash(curl -s http://localhost:3000/api/scans)",
+      "Bash(gh --version)",
+      "Bash(/opt/homebrew/opt/node@22/bin/npm install)",
+      "Bash(sort -t/ -k3)",
+      "Bash(cp \"/Users/danielthompson/Downloads/buntun_A_single_your_professional_working_at_home_who_is_happy__ef03f1e0-5e62-402b-8d13-8a17466e719a.png\" \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\")",
+      "Bash(sips -s format jpeg \"/Users/danielthompson/Downloads/buntun_A_single_your_professional_working_at_home_who_is_happy__ef03f1e0-5e62-402b-8d13-8a17466e719a.png\" --out \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\")",
+      "Bash(sips -s format jpeg -s formatOptions 85 -z 1200 1200 \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\" --out \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\")",
+      "Bash(ls ~/Downloads/*.pdf)",
+      "Bash(python3 -c \"import os; files = os.listdir\\(os.path.expanduser\\(''~/Downloads''\\)\\); [print\\(repr\\(f\\)\\) for f in files if ''clean'' in f.lower\\(\\) or ''cook'' in f.lower\\(\\)]\")",
+      "Bash(python3 -c \":*)"
+    ]
+  }
+}
