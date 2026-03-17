@@ -109,6 +109,83 @@ router.post('/:id/reassign', async (req, res) => {
   }
 });
 
+// POST /api/drafts/:id/recover — recover a skipped scan back to pending
+router.post('/:id/recover', async (req, res) => {
+  const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(req.params.id);
+  if (!scan) return res.status(404).json({ error: 'Not found' });
+  if (scan.status !== 'skipped') return res.status(400).json({ error: 'Only skipped scans can be recovered' });
+  if (!scan.contact_email) return res.status(400).json({ error: 'No contact assigned — reassign first' });
+
+  try {
+    const pdfBuffer = await downloadPdf(scan.drive_file_id);
+    const draftId = await createDraft({
+      contactName:  scan.contact_name,
+      contactEmail: scan.contact_email,
+      fileName:     scan.file_name,
+      pdfBuffer,
+      mailCategory: scan.mail_category,
+    });
+    db.prepare(`UPDATE scans SET status = 'pending', gmail_draft_id = ?, updated_at = unixepoch() WHERE id = ?`).run(draftId, scan.id);
+    res.json({ success: true, draftId });
+  } catch (err) {
+    console.error('Recover error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/drafts/:id/trash — move to recoverable trash
+router.post('/:id/trash', async (req, res) => {
+  const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(req.params.id);
+  if (!scan) return res.status(404).json({ error: 'Not found' });
+  if (scan.status === 'sent') return res.status(400).json({ error: 'Cannot trash a sent item' });
+
+  try {
+    if (scan.gmail_draft_id) await deleteDraft(scan.gmail_draft_id).catch(() => {});
+    db.prepare(`
+      UPDATE scans SET status = 'deleted', gmail_draft_id = NULL, deleted_at = unixepoch(), updated_at = unixepoch() WHERE id = ?
+    `).run(scan.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Trash error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/drafts/:id/restore — restore from trash to skipped
+router.post('/:id/restore', async (req, res) => {
+  const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(req.params.id);
+  if (!scan) return res.status(404).json({ error: 'Not found' });
+  if (scan.status !== 'deleted') return res.status(400).json({ error: 'Only deleted scans can be restored' });
+
+  try {
+    db.prepare(`
+      UPDATE scans SET status = 'skipped', deleted_at = NULL, updated_at = unixepoch() WHERE id = ?
+    `).run(scan.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Restore error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/drafts/:id/save-override — remember the confirmed contact for this recipient
+router.post('/:id/save-override', async (req, res) => {
+  const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(req.params.id);
+  if (!scan) return res.status(404).json({ error: 'Not found' });
+  if (!scan.recipient_raw || !scan.contact_email) return res.status(400).json({ error: 'Missing recipient or contact' });
+
+  const key = scan.recipient_raw.trim().toLowerCase();
+  db.prepare(`
+    INSERT INTO contact_overrides (recipient_key, contact_id, contact_name, contact_email, updated_at)
+    VALUES (?, ?, ?, ?, unixepoch())
+    ON CONFLICT(recipient_key) DO UPDATE SET
+      contact_id = excluded.contact_id, contact_name = excluded.contact_name,
+      contact_email = excluded.contact_email, updated_at = unixepoch()
+  `).run(key, scan.contact_id || null, scan.contact_name, scan.contact_email);
+
+  res.json({ success: true });
+});
+
 // POST /api/drafts/:id/retry — reprocess a scan (OCR + match + draft) from scratch
 router.post('/:id/retry', async (req, res) => {
   const scan = db.prepare('SELECT * FROM scans WHERE id = ?').get(req.params.id);

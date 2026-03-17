@@ -11,11 +11,22 @@ const STANDARD_FOOTER = [
   '- If you need any help with your membership please contact virtual@impactbrixton.com.',
 ].join('\n');
 
-function buildDefaultBody() {
+function buildDefaultBody(contactName) {
+  const firstName = contactName ? contactName.trim().split(/\s+/)[0] : null;
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
+  return [greeting, '', 'You have received mail at your IB virtual office address.', '', STANDARD_FOOTER].join('\n');
+}
+
+function buildSensitiveBody(contactName) {
+  const firstName = contactName ? contactName.trim().split(/\s+/)[0] : null;
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
   return [
-    'Hi,',
+    greeting, '',
+    'You have received what appears to be sensitive mail (banking, legal or government correspondence) at your IB virtual office address.',
     '',
-    'You have received mail at your IB virtual office address.',
+    'Please let us know when you plan to come and collect it, or we can arrange forwarding for a one-off fee of £2.50.',
+    '',
+    'Simply reply to this email to arrange forwarding.',
     '',
     STANDARD_FOOTER,
   ].join('\n');
@@ -36,7 +47,9 @@ function formatTime(ts) {
 
 function EmailModal({ scan, onSend, onClose }) {
   const [subject, setSubject] = useState(STANDARD_SUBJECT);
-  const [body, setBody]       = useState(buildDefaultBody());
+  const [body, setBody]       = useState(() =>
+    scan.mail_category === 'sensitive' ? buildSensitiveBody(scan.contact_name) : buildDefaultBody(scan.contact_name)
+  );
   const [busy, setBusy]       = useState(false);
 
   async function handleSend() {
@@ -161,20 +174,60 @@ export default function ScanCard({ scan, isSelected, onUpdate, onToast }) {
     }
   }
 
+  async function handleRecover() {
+    setBusy('recover');
+    try {
+      const result = await api(`/api/drafts/${scan.id}/recover`);
+      onToast('Scan recovered — ready to send', 'success');
+      onUpdate(scan.id, { status: 'pending', gmail_draft_id: result.draftId });
+    } catch (err) {
+      onToast(err.message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleTrash() {
+    setBusy('trash');
+    try {
+      await api(`/api/drafts/${scan.id}/trash`);
+      onToast('Moved to trash', null);
+      onUpdate(scan.id, { status: 'deleted' });
+    } catch (err) {
+      onToast(err.message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRestore() {
+    setBusy('restore');
+    try {
+      await api(`/api/drafts/${scan.id}/restore`);
+      onToast('Restored to skipped', 'success');
+      onUpdate(scan.id, { status: 'skipped' });
+    } catch (err) {
+      onToast(err.message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleReassign(contact) {
     setShowPicker(false);
     setBusy('reassign');
     try {
-      await api(`/api/drafts/${scan.id}/reassign`, 'POST', {
+      const result = await api(`/api/drafts/${scan.id}/reassign`, 'POST', {
         contactId: contact.resourceName,
         contactName: contact.name,
         contactEmail: contact.email,
       });
       onToast(`Draft updated for ${contact.name}`, 'success');
       onUpdate(scan.id, {
-        contact_id: contact.resourceName,
-        contact_name: contact.name,
-        contact_email: contact.email,
+        contact_id:     contact.resourceName,
+        contact_name:   contact.name,
+        contact_email:  contact.email,
+        gmail_draft_id: result.draftId,
         status: 'pending',
       });
     } catch (err) {
@@ -184,7 +237,7 @@ export default function ScanCard({ scan, isSelected, onUpdate, onToast }) {
     }
   }
 
-  const isReadOnly = scan.status === 'sent' || scan.status === 'skipped';
+  const isReadOnly = scan.status === 'sent';
   const hasContact = !!scan.contact_email;
   const isNoMatch = scan.status === 'no_match';
   const displayName = scan.contact_name
@@ -218,10 +271,14 @@ export default function ScanCard({ scan, isSelected, onUpdate, onToast }) {
           <div className="scan-expand">
             {/* PDF preview */}
             <div className="scan-expand-preview">
-              <iframe
-                src={`/api/scans/${scan.id}/pdf`}
-                title={scan.file_name}
-              />
+              <a href={`/api/scans/${scan.id}/pdf`} target="_blank" rel="noreferrer" title="Click to open full PDF">
+                <img
+                  src={`/api/scans/${scan.id}/thumbnail`}
+                  alt="Mail preview"
+                  className="scan-thumbnail"
+                  onError={e => { e.target.style.display = 'none'; }}
+                />
+              </a>
               <div className="scan-expand-filename" title={scan.file_name}>
                 📄 {scan.file_name}
               </div>
@@ -245,6 +302,17 @@ export default function ScanCard({ scan, isSelected, onUpdate, onToast }) {
                   )}
                 </div>
               </div>
+
+              {scan.mail_category && (
+                <div className="info-row">
+                  <div className="info-label">Category</div>
+                  <div className="info-value">
+                    <span className={`category-badge category-badge--${scan.mail_category}`}>
+                      {scan.mail_category === 'sensitive' ? '🔒 Sensitive' : '📬 Standard'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {scan.recipient_raw && (
                 <div className="info-row">
@@ -272,26 +340,37 @@ export default function ScanCard({ scan, isSelected, onUpdate, onToast }) {
                 </details>
               )}
 
-              {!isReadOnly && (
+              {scan.status === 'deleted' ? (
+                <div className="scan-actions">
+                  <button className="btn btn-ghost" onClick={handleRestore} disabled={!!busy}>
+                    {busy === 'restore' ? <span className="spinner" /> : '♻️'} Restore
+                  </button>
+                </div>
+              ) : !isReadOnly && (
                 <div className="scan-actions">
                   {hasContact && scan.gmail_draft_id && (
-                    <button
-                      className="btn btn-success"
-                      onClick={() => setShowEmailModal(true)}
-                      disabled={!!busy}
-                    >
-                      {busy === 'send' ? <span className="spinner" /> : '✉️'}
-                      Send Email
+                    <button className="btn btn-success" onClick={() => setShowEmailModal(true)} disabled={!!busy}>
+                      {busy === 'send' ? <span className="spinner" /> : '✉️'} Send Email
                     </button>
                   )}
                   <button className="btn btn-ghost" onClick={() => setShowPicker(true)} disabled={!!busy}>
                     {busy === 'reassign' ? <span className="spinner" /> : '👤'}
                     {hasContact ? 'Change Contact' : 'Assign Contact'}
                   </button>
-                  <button className="btn btn-danger-ghost btn-sm" onClick={handleSkip} disabled={!!busy}>
-                    {busy === 'skip' ? <span className="spinner" /> : null}
-                    Skip
-                  </button>
+                  {scan.status === 'skipped' ? (
+                    <>
+                      <button className="btn btn-ghost btn-sm" onClick={handleRecover} disabled={!!busy}>
+                        {busy === 'recover' ? <span className="spinner" /> : '↩️'} Recover
+                      </button>
+                      <button className="btn btn-danger-ghost btn-sm" onClick={handleTrash} disabled={!!busy}>
+                        {busy === 'trash' ? <span className="spinner" /> : '🗑️'} Delete
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn btn-danger-ghost btn-sm" onClick={handleSkip} disabled={!!busy}>
+                      {busy === 'skip' ? <span className="spinner" /> : null} Skip
+                    </button>
+                  )}
                 </div>
               )}
 

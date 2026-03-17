@@ -10,11 +10,22 @@ const STANDARD_FOOTER = [
   '- If you need any help with your membership please contact virtual@impactbrixton.com.',
 ].join('\r\n');
 
-function buildDefaultBody() {
+function buildDefaultBody(contactName) {
+  const firstName = contactName ? contactName.trim().split(/\s+/)[0] : null;
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
+  return [greeting, '', 'You have received mail at your IB virtual office address.', '', STANDARD_FOOTER].join('\r\n');
+}
+
+function buildSensitiveBody(contactName) {
+  const firstName = contactName ? contactName.trim().split(/\s+/)[0] : null;
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
   return [
-    'Hi,',
+    greeting, '',
+    'You have received what appears to be sensitive mail (banking, legal or government correspondence) at your IB virtual office address.',
     '',
-    'You have received mail at your IB virtual office address.',
+    'Please let us know when you plan to come and collect it, or we can arrange forwarding for a one-off fee of £2.50.',
+    '',
+    'Simply reply to this email to arrange forwarding.',
     '',
     STANDARD_FOOTER,
   ].join('\r\n');
@@ -57,7 +68,7 @@ function buildMimeMessage({ to, toName, subject, body, pdfBuffer, pdfFileName })
 }
 
 // subject / body are optional overrides; defaults are applied if omitted
-async function createDraft({ contactName, contactEmail, fileName, pdfBuffer, subject, body }) {
+async function createDraft({ contactName, contactEmail, fileName, pdfBuffer, subject, body, mailCategory }) {
   const auth = getAuthClient();
   if (!auth) throw new Error('Not authenticated');
 
@@ -67,7 +78,7 @@ async function createDraft({ contactName, contactEmail, fileName, pdfBuffer, sub
     to: contactEmail,
     toName: contactName,
     subject: subject || STANDARD_SUBJECT,
-    body: body || buildDefaultBody(),
+    body: body || (mailCategory === 'sensitive' ? buildSensitiveBody(contactName) : buildDefaultBody(contactName)),
     pdfBuffer,
     pdfFileName: fileName,
   });
@@ -106,4 +117,4 @@ async function deleteDraft(draftId) {
   }
 }
 
-module.exports = { createDraft, sendDraft, deleteDraft, STANDARD_SUBJECT, buildDefaultBody };
+module.exports = { createDraft, sendDraft, deleteDraft, STANDARD_SUBJECT, buildDefaultBody, buildSensitiveBody };

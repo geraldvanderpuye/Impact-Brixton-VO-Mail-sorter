@@ -6,6 +6,7 @@ const TABS = [
   { key: 'pending', label: 'Pending', statusFilter: ['pending', 'no_match', 'processing', 'error'] },
   { key: 'sent',    label: 'Sent',    statusFilter: ['sent'] },
   { key: 'skipped', label: 'Skipped', statusFilter: ['skipped'] },
+  { key: 'trash',   label: 'Trash',   statusFilter: ['deleted'] },
 ];
 
 const TIME_PILLS = [
@@ -309,6 +310,32 @@ export default function Dashboard({ authStatus }) {
           </div>
         </div>
 
+        {/* Work Done Today */}
+        {(stats.today || stats.yesterday) && (
+          <div className="today-summary">
+            <div className="today-summary-title">Today's Activity</div>
+            <div className="today-summary-stats">
+              <div className="today-stat">
+                <span className="today-stat-num">{stats.today?.sent || 0}</span>
+                <span className="today-stat-label">sent</span>
+                {(stats.yesterday?.sent || 0) > 0 && <span className="today-stat-vs">vs {stats.yesterday.sent} yesterday</span>}
+              </div>
+              <div className="today-stat">
+                <span className="today-stat-num">{stats.today?.skipped || 0}</span>
+                <span className="today-stat-label">skipped</span>
+              </div>
+              <div className="today-stat">
+                <span className="today-stat-num">{stats.today?.no_match || 0}</span>
+                <span className="today-stat-label">unmatched</span>
+              </div>
+              <div className="today-stat">
+                <span className="today-stat-num">{(stats.today?.sent || 0) + (stats.today?.skipped || 0) + (stats.today?.no_match || 0)}</span>
+                <span className="today-stat-label">total processed</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Search + Date */}
         <div className="search-row">
           <div className="search-input-wrap" style={{ flex: 1 }}>
@@ -324,24 +351,6 @@ export default function Dashboard({ authStatus }) {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <label className={`date-pick-btn ${specificDate ? 'has-date' : ''}`}>
-            📅{' '}
-            {specificDate
-              ? new Date(specificDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-              : 'Pick a date'}
-            {specificDate && (
-              <span
-                className="date-clear"
-                onClick={e => { e.preventDefault(); e.stopPropagation(); setSpecificDate(''); }}
-              >✕</span>
-            )}
-            <input
-              type="date"
-              value={specificDate}
-              onChange={e => { setSpecificDate(e.target.value); }}
-              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', zIndex: 1 }}
-            />
-          </label>
         </div>
 
         {/* Recent Arrivals — 4 latest scans as quick-access tiles */}
@@ -387,7 +396,8 @@ export default function Dashboard({ authStatus }) {
             const count =
               tab.key === 'pending' ? pendingCount :
               tab.key === 'sent'    ? (stats.sent || 0) :
-              tab.key === 'skipped' ? (stats.skipped || 0) : 0;
+              tab.key === 'skipped' ? (stats.skipped || 0) :
+              tab.key === 'trash'   ? (stats.deleted || 0) : 0;
             return (
               <button
                 key={tab.key}
@@ -401,7 +411,7 @@ export default function Dashboard({ authStatus }) {
           })}
         </div>
 
-        {/* Time Pills */}
+        {/* Time Pills + Date Picker on same row */}
         <div className="time-pills">
           {TIME_PILLS.map(p => (
             <button
@@ -412,6 +422,24 @@ export default function Dashboard({ authStatus }) {
               {p.label}
             </button>
           ))}
+          <label className={`date-pick-btn ${specificDate ? 'has-date' : ''}`} style={{ marginLeft: 'auto' }}>
+            📅{' '}
+            {specificDate
+              ? new Date(specificDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+              : 'Pick a date'}
+            {specificDate && (
+              <span
+                className="date-clear"
+                onClick={e => { e.preventDefault(); e.stopPropagation(); setSpecificDate(''); }}
+              >✕</span>
+            )}
+            <input
+              type="date"
+              value={specificDate}
+              onChange={e => setSpecificDate(e.target.value)}
+              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', zIndex: 1 }}
+            />
+          </label>
         </div>
 
         {/* Toolbar */}

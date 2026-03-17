@@ -8,6 +8,21 @@ const { processOcr, extractRecipient } = require('./ocr');
 const { findBestMatch } = require('./contacts');
 const { createDraft, deleteDraft } = require('./gmail');
 
+const SENSITIVE_KEYWORDS = [
+  'hmrc','inland revenue','court','tribunal','solicitor','legal notice',
+  'barclays','lloyds','natwest','hsbc','santander','halifax','monzo',
+  'starling','revolut','nationwide','virgin money','bank statement',
+  'statement of account','dvla','passport','companies house','vat',
+  'national insurance','pension','enforcement','bailiff','ccj','debt collector',
+  'tax','government','council tax','universal credit',
+];
+
+function classifyMail(ocrText) {
+  const text = (ocrText || '').toLowerCase();
+  if (SENSITIVE_KEYWORDS.some(kw => text.includes(kw))) return 'sensitive';
+  return 'standard';
+}
+
 /**
  * (Re-)process a single scan record.
  * If the scan already has a draft, deletes it first.
@@ -33,8 +48,18 @@ async function processScan(scanId) {
     const { ocrText, recipient } = await processOcr(pdfBuffer);
     console.log(`[pipeline] Recipient extracted: "${recipient}"`);
 
-    // 3. Match contact — pass full OCR text so scorer can find extra clues
-    const contact = await findBestMatch(recipient, ocrText);
+    const mailCategory = classifyMail(ocrText);
+
+    // 3. Match contact — check override first, then fall back to findBestMatch
+    const overrideKey = (recipient || '').trim().toLowerCase();
+    const override = overrideKey ? db.prepare('SELECT * FROM contact_overrides WHERE recipient_key = ?').get(overrideKey) : null;
+    let contact;
+    if (override) {
+      contact = { resourceName: override.contact_id, name: override.contact_name, email: override.contact_email };
+      console.log(`[pipeline] Using contact override for "${recipient}": ${contact.name}`);
+    } else {
+      contact = await findBestMatch(recipient, ocrText);
+    }
     console.log(`[pipeline] Matched contact: ${contact ? `${contact.name} <${contact.email}>` : 'none'}`);
 
     if (!contact) {
@@ -52,6 +77,7 @@ async function processScan(scanId) {
       contactEmail: contact.email,
       fileName: scan.file_name,
       pdfBuffer,
+      mailCategory,
     });
 
     // 5. Save result
@@ -63,10 +89,11 @@ async function processScan(scanId) {
         contact_name   = ?,
         contact_email  = ?,
         gmail_draft_id = ?,
+        mail_category  = ?,
         status         = 'pending',
         updated_at     = unixepoch()
       WHERE id = ?
-    `).run(ocrText, recipient, contact.resourceName, contact.name, contact.email, draftId, scanId);
+    `).run(ocrText, recipient, contact.resourceName, contact.name, contact.email, draftId, mailCategory, scanId);
 
     return { status: 'pending', contact, draftId };
   } catch (err) {
