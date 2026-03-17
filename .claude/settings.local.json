@@ -20,7 +20,9 @@
       "Bash(sips -s format jpeg -s formatOptions 85 -z 1200 1200 \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\" --out \"/Users/danielthompson/Coding/IB/impact-brixton-website/public/images/virtual-office-member.jpg\")",
       "Bash(ls ~/Downloads/*.pdf)",
       "Bash(python3 -c \"import os; files = os.listdir\\(os.path.expanduser\\(''~/Downloads''\\)\\); [print\\(repr\\(f\\)\\) for f in files if ''clean'' in f.lower\\(\\) or ''cook'' in f.lower\\(\\)]\")",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)"
     ]
   }
 }
