@@ -1,0 +1,203 @@
+require('dotenv').config();
+const http = require('http');
+const cron = require('node-cron');
+const { getAuthClient, getAuthUrl, exchangeCode, isConnected } = require('./auth');
+const { listNewPdfs, downloadPdf } = require('./drive');
+const { processOcr, extractRecipient } = require('./ocr');
+
+const PORT = process.env.PORT || 3001;
+const INGEST_URL = process.env.INGEST_URL;
+const INGEST_SECRET = process.env.INGEST_SECRET;
+
+// Sensitive keyword list — classify mail category
+const SENSITIVE_KEYWORDS = [
+  'hmrc', 'inland revenue', 'court', 'tribunal', 'solicitor', 'legal notice',
+  'barclays', 'lloyds', 'natwest', 'hsbc', 'santander', 'halifax', 'monzo',
+  'starling', 'revolut', 'nationwide', 'virgin money', 'bank statement',
+  'statement of account', 'dvla', 'passport', 'companies house', 'vat',
+  'national insurance', 'pension', 'enforcement', 'bailiff', 'ccj', 'debt collector',
+  'tax', 'government', 'council tax', 'universal credit',
+];
+
+function classifyMail(ocrText) {
+  const text = (ocrText || '').toLowerCase();
+  return SENSITIVE_KEYWORDS.some(kw => text.includes(kw)) ? 'sensitive' : 'standard';
+}
+
+// Track processed Drive file IDs in memory (persists until restart)
+const processedFiles = new Set();
+let isProcessing = false;
+
+// Post scan results to CompanyBoard
+async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBase64 }) {
+  if (!INGEST_URL) {
+    console.error('[ingest] INGEST_URL not configured');
+    return null;
+  }
+
+  const body = JSON.stringify({
+    fileName,
+    recipientName,
+    category,
+    ocrText,
+    driveFileId,
+    pdfBase64,
+  });
+
+  const res = await fetch(INGEST_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': INGEST_SECRET || '',
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ingest failed (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+async function processSingleFile(file) {
+  console.log(`[scan] Processing: ${file.name} (${file.id})`);
+
+  try {
+    // Download PDF from Drive
+    const pdfBuffer = await downloadPdf(file.id);
+
+    // OCR — extract text and recipient
+    const { ocrText, recipient } = await processOcr(pdfBuffer);
+    console.log(`[scan] Recipient: "${recipient}"`);
+
+    // Classify
+    const category = classifyMail(ocrText);
+    console.log(`[scan] Category: ${category}`);
+
+    // Post to CompanyBoard
+    const result = await postToIngest({
+      fileName: file.name,
+      recipientName: recipient,
+      category,
+      ocrText,
+      driveFileId: file.id,
+      pdfBase64: pdfBuffer.toString('base64'),
+    });
+
+    processedFiles.add(file.id);
+    console.log(`[scan] Posted to CompanyBoard: matched=${result?.matched}, mailId=${result?.mailId}`);
+    return result;
+  } catch (err) {
+    console.error(`[scan] Error processing ${file.name}:`, err.message);
+    return null;
+  }
+}
+
+async function pollDrive() {
+  if (!(await isConnected())) return;
+  if (isProcessing) {
+    console.log('[poll] Previous run still in progress, skipping');
+    return;
+  }
+
+  isProcessing = true;
+  try {
+    console.log('[poll] Checking Drive...');
+    const newFiles = await listNewPdfs(processedFiles);
+    if (newFiles.length === 0) {
+      console.log('[poll] No new files');
+      return;
+    }
+
+    console.log(`[poll] Found ${newFiles.length} new file(s)`);
+    for (const file of newFiles) {
+      await processSingleFile(file);
+    }
+  } catch (err) {
+    console.error('[poll] Drive poll error:', err.message);
+  } finally {
+    isProcessing = false;
+  }
+}
+
+// Minimal HTTP server for health check + auth flow
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  if (url.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', connected: await isConnected(), processed: processedFiles.size }));
+    return;
+  }
+
+  if (url.pathname === '/auth/google') {
+    res.writeHead(302, { Location: getAuthUrl() });
+    res.end();
+    return;
+  }
+
+  if (url.pathname === '/auth/google/callback') {
+    const code = url.searchParams.get('code');
+    if (!code) {
+      res.writeHead(400);
+      res.end('Missing code');
+      return;
+    }
+    try {
+      const email = await exchangeCode(code);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<h2>Connected as ${email}</h2><p>Scanner will start polling automatically.</p>`);
+      // Start polling after auth
+      setTimeout(() => pollDrive().catch(console.error), 2000);
+    } catch (err) {
+      res.writeHead(500);
+      res.end('Auth failed: ' + err.message);
+    }
+    return;
+  }
+
+  if (url.pathname === '/poll' && req.method === 'POST') {
+    pollDrive().catch(console.error);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Poll started' }));
+    return;
+  }
+
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  const connected = await isConnected();
+  res.end(`
+    <h2>IB Mail Scanner</h2>
+    <p>Status: ${connected ? 'Connected' : '<a href="/auth/google">Connect Google Account</a>'}</p>
+    <p>Processed: ${processedFiles.size} files this session</p>
+  `);
+});
+
+// Start
+server.listen(PORT, () => {
+  console.log(`\nIB Mail Scanner running on http://localhost:${PORT}`);
+
+  // Schedule polling
+  const intervalSeconds = parseInt(process.env.POLL_INTERVAL_SECONDS || '60', 10);
+  if (intervalSeconds >= 10) {
+    const cronExpr = intervalSeconds < 60
+      ? `*/${intervalSeconds} * * * * *`
+      : `*/${Math.floor(intervalSeconds / 60)} * * * *`;
+
+    cron.schedule(cronExpr, () => {
+      pollDrive().catch(console.error);
+    });
+    console.log(`Polling every ${intervalSeconds}s`);
+  }
+
+  // Initial poll
+  isConnected().then(connected => {
+    if (connected) {
+      console.log('Google account connected — starting initial poll');
+      setTimeout(() => pollDrive().catch(console.error), 2000);
+    } else {
+      console.log(`Not authenticated — visit http://localhost:${PORT}/auth/google`);
+    }
+  });
+});

@@ -1,0 +1,17 @@
+{
+  "name": "ib-mail-scanner",
+  "version": "1.0.0",
+  "description": "OCR microservice: polls Google Drive, extracts recipients, posts to CompanyBoard",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "googleapis": "^140.0.1",
+    "node-cron": "^3.0.3",
+    "node-tesseract-ocr": "^2.2.1",
+    "pdf2pic": "^3.1.4"
+  }
+}
