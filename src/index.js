@@ -24,9 +24,29 @@ function classifyMail(ocrText) {
   return SENSITIVE_KEYWORDS.some(kw => text.includes(kw)) ? 'sensitive' : 'standard';
 }
 
-// Track processed Drive file IDs in memory (persists until restart)
+// Track processed Drive file IDs in memory — pre-populated from CompanyBoard on startup
 const processedFiles = new Set();
 let isProcessing = false;
+
+// Fetch already-processed file IDs from CompanyBoard so we don't reprocess after redeploy
+async function loadProcessedIds() {
+  if (!INGEST_URL || !INGEST_SECRET) return;
+  try {
+    const baseUrl = INGEST_URL.replace(/\/ingest$/, '/processed-ids');
+    const res = await fetch(baseUrl, {
+      headers: { 'x-api-key': INGEST_SECRET },
+    });
+    if (res.ok) {
+      const { ids } = await res.json();
+      ids.forEach(id => processedFiles.add(id));
+      console.log(`[init] Loaded ${ids.length} previously processed file IDs from CompanyBoard`);
+    } else {
+      console.warn(`[init] Failed to load processed IDs: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`[init] Could not fetch processed IDs:`, err.message);
+  }
+}
 
 // Post scan results to CompanyBoard
 async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBase64 }) {
@@ -191,9 +211,10 @@ server.listen(PORT, () => {
     console.log(`Polling every ${intervalSeconds}s`);
   }
 
-  // Initial poll
-  isConnected().then(connected => {
+  // Load processed IDs from CompanyBoard, then start polling
+  isConnected().then(async (connected) => {
     if (connected) {
+      await loadProcessedIds();
       console.log('Google account connected — starting initial poll');
       setTimeout(() => pollDrive().catch(console.error), 2000);
     } else {
