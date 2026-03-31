@@ -4,6 +4,7 @@ const path = require('path');
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/userinfo.email',
 ];
 
 const TOKEN_PATH = path.join(__dirname, '..', '.tokens.json');
@@ -37,7 +38,12 @@ function loadTokens() {
 }
 
 function saveTokens(tokens) {
-  fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
+  try {
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
+  } catch {
+    // On Railway / read-only filesystem, file writes fail — tokens persist via env vars
+    console.log('[auth] Could not write tokens file (read-only FS) — using env vars instead');
+  }
 }
 
 function getAuthUrl() {
@@ -54,6 +60,12 @@ async function exchangeCode(code) {
   const { tokens } = await client.getToken(code);
   saveTokens(tokens);
   client.setCredentials(tokens);
+
+  // Log refresh token so it can be saved as env var for persistence
+  if (tokens.refresh_token) {
+    console.log(`[auth] REFRESH_TOKEN obtained — save as GOOGLE_REFRESH_TOKEN env var for persistence`);
+    console.log(`[auth] GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}`);
+  }
 
   const oauth2 = google.oauth2({ version: 'v2', auth: client });
   const { data } = await oauth2.userinfo.get();
