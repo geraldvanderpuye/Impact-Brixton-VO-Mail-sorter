@@ -83,19 +83,32 @@ async function postToIngest({ fileName, recipientName, category, ocrText, driveF
 async function processSingleFile(file) {
   console.log(`[scan] Processing: ${file.name} (${file.id})`);
 
+  let pdfBuffer = null;
+  let ocrText = null;
+  let recipient = null;
+  let category = 'standard';
+
   try {
-    // Download PDF from Drive
-    const pdfBuffer = await downloadPdf(file.id);
+    // Download PDF from Drive (must succeed — no PDF = nothing to ingest)
+    pdfBuffer = await downloadPdf(file.id);
+  } catch (err) {
+    console.error(`[scan] Failed to download ${file.name}:`, err.message);
+    return null; // Can't proceed without the file
+  }
 
-    // OCR — extract text and recipient
-    const { ocrText, recipient } = await processOcr(pdfBuffer);
-    console.log(`[scan] Recipient: "${recipient}"`);
+  // OCR — best effort. If it fails, we still ingest the PDF.
+  try {
+    const ocrResult = await processOcr(pdfBuffer);
+    ocrText = ocrResult.ocrText;
+    recipient = ocrResult.recipient;
+    category = classifyMail(ocrText);
+    console.log(`[scan] Recipient: "${recipient}" | Category: ${category}`);
+  } catch (err) {
+    console.error(`[scan] OCR failed for ${file.name} — ingesting without OCR:`, err.message);
+  }
 
-    // Classify
-    const category = classifyMail(ocrText);
-    console.log(`[scan] Category: ${category}`);
-
-    // Post to CompanyBoard
+  // Post to CompanyBoard — the PDF MUST get into the mail sorter
+  try {
     const result = await postToIngest({
       fileName: file.name,
       recipientName: recipient,
@@ -109,7 +122,8 @@ async function processSingleFile(file) {
     console.log(`[scan] Posted to CompanyBoard: matched=${result?.matched}, mailId=${result?.mailId}`);
     return result;
   } catch (err) {
-    console.error(`[scan] Error processing ${file.name}:`, err.message);
+    console.error(`[scan] Ingest failed for ${file.name}:`, err.message);
+    // Do NOT mark as processed — retry next poll
     return null;
   }
 }
