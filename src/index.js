@@ -48,29 +48,28 @@ async function loadProcessedIds() {
   }
 }
 
-// Post scan results to CompanyBoard
-async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBase64 }) {
+// Post scan results to CompanyBoard using multipart form data
+// (avoids Vercel's 4.5MB JSON body limit for large PDFs)
+async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBuffer }) {
   if (!INGEST_URL) {
     console.error('[ingest] INGEST_URL not configured');
     return null;
   }
 
-  const body = JSON.stringify({
-    fileName,
-    recipientName,
-    category,
-    ocrText,
-    driveFileId,
-    pdfBase64,
-  });
+  const formData = new FormData();
+  formData.append('fileName', fileName);
+  if (recipientName) formData.append('recipientName', recipientName);
+  formData.append('category', category || 'standard');
+  if (ocrText) formData.append('ocrText', ocrText);
+  if (driveFileId) formData.append('driveFileId', driveFileId);
+  if (pdfBuffer) {
+    formData.append('pdf', new Blob([pdfBuffer], { type: 'application/pdf' }), fileName);
+  }
 
   const res = await fetch(INGEST_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': INGEST_SECRET || '',
-    },
-    body,
+    headers: { 'x-api-key': INGEST_SECRET || '' },
+    body: formData,
   });
 
   if (!res.ok) {
@@ -103,7 +102,7 @@ async function processSingleFile(file) {
       category,
       ocrText,
       driveFileId: file.id,
-      pdfBase64: pdfBuffer.toString('base64'),
+      pdfBuffer,
     });
 
     processedFiles.add(file.id);
