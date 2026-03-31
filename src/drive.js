@@ -27,8 +27,10 @@ async function listSubfolders(drive, folderId, since) {
   return res.data.files || [];
 }
 
-// Poll since: use env var or default to 24 hours ago (catch recent uploads)
-let pollSince = process.env.POLL_SINCE || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+// Look back window — how far back to check for files on each poll
+// Default 7 days to catch anything missed. Deduplication via processedIds
+// prevents reprocessing, so a wide window is safe.
+const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '7', 10);
 
 async function listNewPdfs(processedIds) {
   const auth = await getAuthClient();
@@ -37,15 +39,18 @@ async function listNewPdfs(processedIds) {
   const drive = google.drive({ version: 'v3', auth });
   const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
+  // Always look back N days — processedIds handles dedup
+  const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
   // Check PDFs in root folder + subfolders
-  const rootPdfs = await listPdfsInFolder(drive, rootFolderId, pollSince);
-  const subfolders = await listSubfolders(drive, rootFolderId, pollSince);
+  const rootPdfs = await listPdfsInFolder(drive, rootFolderId, since);
+  const subfolders = await listSubfolders(drive, rootFolderId, null); // subfolders may be older
   const subPdfs = (
-    await Promise.all(subfolders.map((f) => listPdfsInFolder(drive, f.id, pollSince)))
+    await Promise.all(subfolders.map((f) => listPdfsInFolder(drive, f.id, since)))
   ).flat();
 
   const allFiles = [...rootPdfs, ...subPdfs];
-  console.log(`[drive] pollSince=${pollSince} | folder=${rootFolderId} | root=${rootPdfs.length} PDFs | subs=${subfolders.length} folders, ${subPdfs.length} PDFs`);
+  console.log(`[drive] lookback=${LOOKBACK_DAYS}d | folder=${rootFolderId} | root=${rootPdfs.length} PDFs | subs=${subfolders.length} folders, ${subPdfs.length} PDFs`);
 
   // Filter out already-processed files
   const filtered = allFiles.filter(f => !processedIds.has(f.id));
