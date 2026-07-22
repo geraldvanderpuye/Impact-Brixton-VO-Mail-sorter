@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const { getAuthClient, getAuthUrl, exchangeCode, isConnected } = require('./auth');
 const { listNewPdfs, downloadPdf } = require('./drive');
 const { processOcr, extractRecipient } = require('./ocr');
+const { uploadPdf } = require('./storage');
 
 const PORT = process.env.PORT || 3001;
 const INGEST_URL = process.env.INGEST_URL;
@@ -48,28 +49,39 @@ async function loadProcessedIds() {
   }
 }
 
-// Post scan results to CompanyBoard using multipart form data
-// (avoids Vercel's 4.5MB JSON body limit for large PDFs)
+// Post scan results to CompanyBoard.
+// PDF is uploaded directly to Supabase Storage (bypasses Vercel's 4.5MB limit).
+// Only metadata is sent to the ingest API.
 async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBuffer }) {
   if (!INGEST_URL) {
     console.error('[ingest] INGEST_URL not configured');
     return null;
   }
 
-  const formData = new FormData();
-  formData.append('fileName', fileName);
-  if (recipientName) formData.append('recipientName', recipientName);
-  formData.append('category', category || 'standard');
-  if (ocrText) formData.append('ocrText', ocrText);
-  if (driveFileId) formData.append('driveFileId', driveFileId);
+  // Upload PDF directly to Supabase Storage (no size limit issues)
+  let storagePath = null;
   if (pdfBuffer) {
-    formData.append('pdf', new Blob([pdfBuffer], { type: 'application/pdf' }), fileName);
+    storagePath = await uploadPdf(pdfBuffer, fileName);
+    if (!storagePath) {
+      throw new Error('Failed to upload PDF to Supabase Storage');
+    }
   }
 
+  // Send only metadata to CompanyBoard ingest API (tiny JSON payload)
   const res = await fetch(INGEST_URL, {
     method: 'POST',
-    headers: { 'x-api-key': INGEST_SECRET || '' },
-    body: formData,
+    headers: {
+      'x-api-key': INGEST_SECRET || '',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fileName,
+      recipientName: recipientName || null,
+      category: category || 'standard',
+      ocrText: ocrText || null,
+      driveFileId: driveFileId || null,
+      storagePath, // pre-uploaded path in Supabase
+    }),
   });
 
   if (!res.ok) {
