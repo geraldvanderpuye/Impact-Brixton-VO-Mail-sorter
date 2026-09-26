@@ -1,13 +1,15 @@
 {
   "name": "ib-mail-scanner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OCR microservice: polls Google Drive, extracts recipients, posts to CompanyBoard",
   "main": "src/index.js",
   "scripts": {
+    "test": "node --test test/*.test.js",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
     "dotenv": "^16.4.5",
     "googleapis": "^140.0.1",
     "node-cron": "^3.0.3",

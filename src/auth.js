@@ -61,10 +61,9 @@ async function exchangeCode(code) {
   saveTokens(tokens);
   client.setCredentials(tokens);
 
-  // Log refresh token so it can be saved as env var for persistence
+  // Credentials must never appear in deployment logs.
   if (tokens.refresh_token) {
     console.log(`[auth] REFRESH_TOKEN obtained — save as GOOGLE_REFRESH_TOKEN env var for persistence`);
-    console.log(`[auth] GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}`);
   }
 
   const oauth2 = google.oauth2({ version: 'v2', auth: client });

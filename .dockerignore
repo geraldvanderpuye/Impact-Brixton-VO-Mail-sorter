@@ -1,0 +1,9 @@
+.git
+node_modules
+.env
+.env.*
+.tokens.json
+PROJECT.md
+LOG.md
+AGENTS.md
+CLAUDE.md

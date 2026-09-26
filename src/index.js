@@ -1,13 +1,21 @@
 require('dotenv').config();
 const http = require('http');
 const cron = require('node-cron');
-const { getAuthClient, getAuthUrl, exchangeCode, isConnected } = require('./auth');
+const { getAuthUrl, exchangeCode, isConnected } = require('./auth');
 const { listNewPdfs, downloadPdf } = require('./drive');
-const { processOcr, extractRecipient } = require('./ocr');
+const { processOcr } = require('./ocr');
+const { uploadPdf } = require('./storage');
+const { fetchWithDeadline, createStageGuard } = require('./runtime');
+const { version } = require('../package.json');
 
 const PORT = process.env.PORT || 3001;
 const INGEST_URL = process.env.INGEST_URL;
 const INGEST_SECRET = process.env.INGEST_SECRET;
+const stageGuard = createStageGuard({ timeoutMs: Number(process.env.STAGE_TIMEOUT_MS || 120_000) });
+const intervalSeconds = parseInt(process.env.POLL_INTERVAL_SECONDS || '60', 10);
+if (!Number.isFinite(intervalSeconds) || intervalSeconds < 10) {
+  throw new Error('POLL_INTERVAL_SECONDS must be at least 10');
+}
 
 // Sensitive keyword list — classify mail category
 const SENSITIVE_KEYWORDS = [
@@ -27,57 +35,78 @@ function classifyMail(ocrText) {
 // Track processed Drive file IDs in memory — pre-populated from CompanyBoard on startup
 const processedFiles = new Set();
 let isProcessing = false;
+let processedIdsLoaded = false;
+let lastPollStartedAt = null;
+let lastPollCompletedAt = null;
+let lastSuccessfulPollAt = null;
+let lastError = null;
 
 // Fetch already-processed file IDs from CompanyBoard so we don't reprocess after redeploy
 async function loadProcessedIds() {
-  if (!INGEST_URL || !INGEST_SECRET) return;
-  try {
-    const baseUrl = INGEST_URL.replace(/\/ingest$/, '/processed-ids');
-    const res = await fetch(baseUrl, {
-      headers: { 'x-api-key': INGEST_SECRET },
-    });
-    if (res.ok) {
-      const { ids } = await res.json();
-      ids.forEach(id => processedFiles.add(id));
-      console.log(`[init] Loaded ${ids.length} previously processed file IDs from CompanyBoard`);
-    } else {
-      console.warn(`[init] Failed to load processed IDs: ${res.status}`);
+  if (!INGEST_URL || !INGEST_SECRET) throw new Error('Ingest configuration missing');
+  const baseUrl = INGEST_URL.replace(/\/ingest$/, '/processed-ids');
+  const res = await fetchWithDeadline(baseUrl, {
+    headers: { 'x-api-key': INGEST_SECRET },
+  });
+  if (res.ok) {
+    const { ids } = await res.json();
+    if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) {
+      throw new Error('Invalid processed-ID response');
     }
-  } catch (err) {
-    console.warn(`[init] Could not fetch processed IDs:`, err.message);
+    ids.forEach(id => processedFiles.add(id));
+    processedIdsLoaded = true;
+    console.log(`[init] Loaded ${ids.length} previously processed file IDs from CompanyBoard`);
+  } else {
+    throw new Error(`Failed to load processed IDs: ${res.status}`);
   }
 }
 
-// Post scan results to CompanyBoard using multipart form data
-// (avoids Vercel's 4.5MB JSON body limit for large PDFs)
+// Post scan results to CompanyBoard.
+// PDF is uploaded directly to Supabase Storage (bypasses Vercel's 4.5MB limit).
+// Only metadata is sent to the ingest API.
 async function postToIngest({ fileName, recipientName, category, ocrText, driveFileId, pdfBuffer }) {
   if (!INGEST_URL) {
-    console.error('[ingest] INGEST_URL not configured');
-    return null;
+    throw new Error('INGEST_URL not configured');
   }
 
-  const formData = new FormData();
-  formData.append('fileName', fileName);
-  if (recipientName) formData.append('recipientName', recipientName);
-  formData.append('category', category || 'standard');
-  if (ocrText) formData.append('ocrText', ocrText);
-  if (driveFileId) formData.append('driveFileId', driveFileId);
+  // Upload PDF directly to Supabase Storage (no size limit issues)
+  let storagePath = null;
   if (pdfBuffer) {
-    formData.append('pdf', new Blob([pdfBuffer], { type: 'application/pdf' }), fileName);
+    storagePath = await stageGuard.run('storage-upload', () => uploadPdf(pdfBuffer, fileName));
+    if (!storagePath) {
+      throw new Error('Failed to upload PDF to Supabase Storage');
+    }
   }
 
-  const res = await fetch(INGEST_URL, {
-    method: 'POST',
-    headers: { 'x-api-key': INGEST_SECRET || '' },
-    body: formData,
+  // Send only metadata to CompanyBoard ingest API (tiny JSON payload)
+  return stageGuard.run('receiver-ingest', async () => {
+    const res = await fetchWithDeadline(INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'x-api-key': INGEST_SECRET || '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fileName,
+        recipientName: recipientName || null,
+        category: category || 'standard',
+        ocrText: ocrText || null,
+        driveFileId: driveFileId || null,
+        storagePath, // pre-uploaded path in Supabase
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Ingest failed (${res.status}): ${text}`);
+    }
+
+    const result = await res.json();
+    if (result?.success !== true || typeof result.mailId !== 'string' || !result.mailId) {
+      throw new Error('Receiver did not confirm ingestion');
+    }
+    return result;
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ingest failed (${res.status}): ${text}`);
-  }
-
-  return res.json();
 }
 
 async function processSingleFile(file) {
@@ -90,7 +119,7 @@ async function processSingleFile(file) {
 
   try {
     // Download PDF from Drive (must succeed — no PDF = nothing to ingest)
-    pdfBuffer = await downloadPdf(file.id);
+    pdfBuffer = await stageGuard.run('drive-download', () => downloadPdf(file.id));
   } catch (err) {
     console.error(`[scan] Failed to download ${file.name}:`, err.message);
     return null; // Can't proceed without the file
@@ -98,11 +127,11 @@ async function processSingleFile(file) {
 
   // OCR — best effort. If it fails, we still ingest the PDF.
   try {
-    const ocrResult = await processOcr(pdfBuffer);
+    const ocrResult = await stageGuard.run('ocr', () => processOcr(pdfBuffer));
     ocrText = ocrResult.ocrText;
     recipient = ocrResult.recipient;
     category = classifyMail(ocrText);
-    console.log(`[scan] Recipient: "${recipient}" | Category: ${category}`);
+    console.log(`[scan] OCR complete | Category: ${category}`);
   } catch (err) {
     console.error(`[scan] OCR failed for ${file.name} — ingesting without OCR:`, err.message);
   }
@@ -129,30 +158,53 @@ async function processSingleFile(file) {
 }
 
 async function pollDrive() {
-  if (!(await isConnected())) return;
   if (isProcessing) {
     console.log('[poll] Previous run still in progress, skipping');
     return;
   }
 
   isProcessing = true;
+  lastPollStartedAt = Date.now();
   try {
+    if (!(await isConnected())) throw new Error('Google account is not connected');
+    if (!processedIdsLoaded) {
+      await stageGuard.run('load-processed-ids', loadProcessedIds);
+    }
     console.log('[poll] Checking Drive...');
-    const newFiles = await listNewPdfs(processedFiles);
+    const newFiles = await stageGuard.run('drive-list', () => listNewPdfs(processedFiles));
     if (newFiles.length === 0) {
       console.log('[poll] No new files');
-      return;
     }
-
-    console.log(`[poll] Found ${newFiles.length} new file(s)`);
+    let failedFiles = 0;
+    if (newFiles.length) console.log(`[poll] Found ${newFiles.length} new file(s)`);
     for (const file of newFiles) {
-      await processSingleFile(file);
+      if (!(await processSingleFile(file))) failedFiles++;
     }
+    if (failedFiles) throw new Error(`${failedFiles} file(s) failed; retrying on the next poll`);
+    lastSuccessfulPollAt = Date.now();
+    lastError = null;
+    console.log('[poll] Completed successfully');
   } catch (err) {
+    lastError = 'poll_failed';
     console.error('[poll] Drive poll error:', err.message);
   } finally {
+    lastPollCompletedAt = Date.now();
     isProcessing = false;
   }
+}
+
+async function healthSnapshot() {
+  const connected = await isConnected();
+  const activeStage = stageGuard.snapshot();
+  const stalled = activeStage && activeStage.elapsedMs >= activeStage.timeoutMs;
+  const stale = !isProcessing && (!lastSuccessfulPollAt ||
+    Date.now() - lastSuccessfulPollAt > Math.max(intervalSeconds * 3_000, 300_000));
+  const healthy = connected && processedIdsLoaded && !lastError && !stalled && !stale;
+  return {
+    status: healthy ? 'ok' : stalled ? 'stalled' : !connected ? 'disconnected' : 'degraded',
+    version, connected, processed: processedFiles.size, processing: isProcessing,
+    activeStage, lastPollStartedAt, lastPollCompletedAt, lastSuccessfulPollAt, lastError,
+  };
 }
 
 // Minimal HTTP server for health check + auth flow
@@ -160,8 +212,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (url.pathname === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', connected: await isConnected(), processed: processedFiles.size }));
+    const health = await healthSnapshot();
+    res.writeHead(health.status === 'ok' ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(health));
     return;
   }
 
@@ -208,11 +261,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Start
-server.listen(PORT, () => {
+if (require.main === module) server.listen(PORT, () => {
   console.log(`\nIB Mail Scanner running on http://localhost:${PORT}`);
 
   // Schedule polling
-  const intervalSeconds = parseInt(process.env.POLL_INTERVAL_SECONDS || '60', 10);
   if (intervalSeconds >= 10) {
     const cronExpr = intervalSeconds < 60
       ? `*/${intervalSeconds} * * * * *`
@@ -224,14 +276,8 @@ server.listen(PORT, () => {
     console.log(`Polling every ${intervalSeconds}s`);
   }
 
-  // Load processed IDs from CompanyBoard, then start polling
-  isConnected().then(async (connected) => {
-    if (connected) {
-      await loadProcessedIds();
-      console.log('Google account connected — starting initial poll');
-      setTimeout(() => pollDrive().catch(console.error), 2000);
-    } else {
-      console.log(`Not authenticated — visit http://localhost:${PORT}/auth/google`);
-    }
-  });
+  // pollDrive loads IDs before discovery, and retries safely if initialization fails.
+  setTimeout(() => pollDrive().catch(console.error), 2000);
 });
+
+module.exports = { pollDrive, healthSnapshot };
