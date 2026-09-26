@@ -4,6 +4,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { fetchWithDeadline } = require('./runtime');
 
 let supabase = null;
 
@@ -17,7 +18,10 @@ function getClient() {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for direct storage upload');
   }
 
-  supabase = createClient(url, key);
+  supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: fetchWithDeadline },
+  });
   return supabase;
 }
 

@@ -1,5 +1,10 @@
 const { google } = require('googleapis');
 const { getAuthClient } = require('./auth');
+const { REQUEST_TIMEOUT_MS } = require('./runtime');
+
+function requestOptions() {
+  return { timeout: REQUEST_TIMEOUT_MS, retry: false, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) };
+}
 
 async function listPdfsInFolder(drive, folderId, since) {
   const sinceFilter = since ? ` and createdTime > '${since}'` : '';
@@ -10,7 +15,7 @@ async function listPdfsInFolder(drive, folderId, since) {
     pageSize: 100,
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
-  });
+  }, requestOptions());
   return res.data.files || [];
 }
 
@@ -23,7 +28,7 @@ async function listSubfolders(drive, folderId, since) {
     pageSize: 30,
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
-  });
+  }, requestOptions());
   return res.data.files || [];
 }
 
@@ -66,7 +71,7 @@ async function downloadPdf(fileId) {
 
   const res = await drive.files.get(
     { fileId, alt: 'media', supportsAllDrives: true },
-    { responseType: 'arraybuffer' }
+    { ...requestOptions(), responseType: 'arraybuffer' }
   );
 
   return Buffer.from(res.data);
